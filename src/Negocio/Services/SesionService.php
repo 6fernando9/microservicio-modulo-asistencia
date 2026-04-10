@@ -143,6 +143,14 @@ class SesionService{
         if (!$exitoCierre) {
             throw new BadRequestException("Error interno al intentar cerrar la sesión con ID $id.");
         }
+        $exito = $this->sesionRepository->marcarAsistenciasCerradasPorSistema($id);
+        if (!$exito) {
+            throw new BadRequestException("Error interno al intentar marcar asistencias como cerradas por sistema para la sesión con ID $id.");
+        }
+        $exito = $this->sesionRepository->marcarQrsInactivosPorSistema($id);
+        if (!$exito) {
+            throw new BadRequestException("Error interno al intentar marcar QRs como inactivos por sistema para la sesión con ID $id.");
+        }
         #return $sesionExistente;
         $sesionExistente->estado = SesionEstadoEnum::CERRADA->value;
         $sesionExistente->fecha_cierre = $fechaCierre;
@@ -157,9 +165,11 @@ class SesionService{
             throw new BadRequestException("La sesión con ID $id no existe.");
         }
         $existeAsistencias = $this->sesionRepository->existeAsistenciasEnSesion($id);
-        if ($existeAsistencias) {
-            throw new BadRequestException("No se puede eliminar la sesión con ID $id porque tiene asistencias asociadas.");
+        #$existeQr = $this->sesionRepository->existeQrEnSesion($id);
+        if ($existeAsistencias ) {
+            throw new BadRequestException("No se puede eliminar la sesión con ID $id porque tiene asistencias asociados.");
         }
+        #digamos que permite eliminar sesion aunque tenga qr asociado
         $eliminacion = $this->sesionRepository->eliminarSesion($id);
         if (!$eliminacion) {
             throw new BadRequestException("No se pudo eliminar la sesión con ID $id. Puede que no exista.");
@@ -182,6 +192,17 @@ class SesionService{
                 throw new BadRequestException("La fecha de cierre es obligatoria para una sesión cerrada.");
             }
         }
+        #validamos que la fecha de entrada no sea mayor a hoy
+        if ($dto->fecha_apertura > date('Y-m-d H:i:s')) {
+            throw new BadRequestException("La fecha de apertura no puede ser mayor a la fecha actual.");
+        }
+        if ($dto->fecha_cierre !== null && $dto->fecha_cierre > date('Y-m-d H:i:s')) {
+            throw new BadRequestException("La fecha de cierre no puede ser mayor a la fecha actual.");
+        }
+        #validamos que la fecha de apertura no sea mayor a la fecha de cierre
+        if ($dto->fecha_cierre !== null && $dto->fecha_apertura > $dto->fecha_cierre) {
+            throw new BadRequestException("La fecha de apertura no puede ser mayor a la fecha de cierre.");
+        }
         $sesionAActualizar = new Sesion(
             id: $id,
             fecha_apertura: $dto->fecha_apertura,
@@ -201,5 +222,69 @@ class SesionService{
         $sesionExistente->observaciones = $dto->observaciones;
         return $sesionExistente;
 
+    }
+    public function obtenerAsistenciasDeSesion(int $sesionId): array {
+        $sesionExistente = $this->sesionRepository->buscarPorId($sesionId);
+        if (!$sesionExistente) {
+            throw new NotFoundException("La sesión con ID $sesionId no existe.");
+        }
+
+        $asistencias = $this->sesionRepository->obtenerAsistenciasDeSesion($sesionId);
+        if (empty($asistencias)) {
+            return [];
+        }
+
+        $idsActores = [];
+        foreach ($asistencias as $a) {
+            if ($a->estudiante_id) $idsActores[] = $a->estudiante_id;
+            if ($a->encargado_id) $idsActores[] = $a->encargado_id;
+        }
+        
+        $idsUnicos = array_values(array_unique($idsActores));
+
+        if (!empty($idsUnicos)) {
+            try {
+                $url = Secrets::microservicioUsuariosURL() . "/api/usuario/obtener-usuarios";
+                $response = RequestUtils::fetch($url, 'POST', ['ids' => $idsUnicos]);
+
+                // IMPORTANTE: Verifica si los usuarios vienen dentro de una llave 'data'
+                $dataUsuarios = $response['data'] ?? $response;
+
+                $mapaUsuarios = [];
+                foreach ($dataUsuarios as $usuario) {
+                    // Forzamos que el ID sea entero para que coincida en la búsqueda
+                    $mapaUsuarios[(int)$usuario['id']] = $usuario;
+                }
+
+                // USAMOS REFERENCIA (&) para modificar los objetos originales dentro del array $asistencias
+                foreach ($asistencias as &$asistencia) {
+                    $eId = $asistencia->estudiante_id ? (int)$asistencia->estudiante_id : null;
+                    $encId = $asistencia->encargado_id ? (int)$asistencia->encargado_id : null;
+
+                    if ($eId && isset($mapaUsuarios[$eId])) {
+                        $asistencia->estudiante = $mapaUsuarios[$eId];
+                    }
+                    
+                    if ($encId && isset($mapaUsuarios[$encId])) {
+                        $asistencia->encargado = $mapaUsuarios[$encId];
+                    }
+                }
+                unset($asistencia); // Rompemos la referencia por seguridad
+
+            } catch (\Throwable $e) {
+                // Loguear el error si es necesario: error_log($e->getMessage());
+            }
+        }
+
+        return $asistencias;
+    }
+    public function obtenerQrsDeSesion(int $sesionId): array {
+        $sesionExistente = $this->sesionRepository->buscarPorId($sesionId);
+        if (!$sesionExistente) {
+            throw new NotFoundException("La sesión con ID $sesionId no existe.");
+        }
+
+        $qrs = $this->sesionRepository->obtenerQrsDeSesion($sesionId);
+        return $qrs;
     }
 }

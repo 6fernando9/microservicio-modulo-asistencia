@@ -23,5 +23,7 @@ class SesionRoutes {
         $router->put('/api/sesion/{id}/cerrar', [$controller, 'cerrarSesion']);
         $router->delete('/api/sesion/{id}/eliminar', [$controller, 'eliminarSesion']);
         $router->put('/api/sesion/{id}/update', [$controller, 'actualizarSesion']);
+        $router->get('/api/sesion/{id}/asistencias', [$controller, 'obtenerAsistenciasDeSesion']);
+        $router->get('/api/sesion/{id}/qrs', [$controller, 'obtenerQrsDeSesion']);
     }
 }

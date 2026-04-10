@@ -2,6 +2,8 @@
 namespace App\Datos\Repository;
 
 use App\Datos\Models\Asistencia;
+use App\Datos\Models\Qr;
+use App\Datos\Models\Sesion;
 use App\Shared\Enums\AsistenciaEstadoEnum;
 use PDO;
 
@@ -11,40 +13,33 @@ class AsistenciaRepository{
     ){}
 
     public function obtenerAsistenciaPorId(int $id): ?Asistencia {
-        $stmt = $this->db->prepare('SELECT * FROM "Asistencia" WHERE id = :id');
+        #$stmt = $this->db->prepare('SELECT * FROM "Asistencia" a JOIN "Sesion" ON "Asistencia".sesion_id = "Sesion".id WHERE "Asistencia".id = :id');
+        $stmt = $this->db->prepare('SELECT a.*, s.fecha_apertura, s.fecha_cierre, s.estado AS estado_sesion, s.encargado_apertura_id, s.encargado_cierre_id, s.id AS sesion_id, s.observaciones AS observaciones_sesion
+        FROM "Asistencia" a JOIN "Sesion" s ON a.sesion_id = s.id WHERE a.id = :id');
         $stmt->execute(['id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? new Asistencia(
-            id: $row['id'],
-            fecha_llegada: $row['fecha_llegada'],
-            fecha_salida: $row['fecha_salida'],
-            estado: $row['estado'],
-            observaciones: $row['observaciones'],
-            encargado_id: $row['encargado_id'],
-            estudiante_id: $row['estudiante_id'],
-            sesion_id: $row['sesion_id'],
-            sesion: null
-        ) : null;
+        return $row ? $this->mapearAsistencia($row) : null;
     }
-    public function crearAsistenciaParaEstudiante(Asistencia $asistencia,int $sesionId,int $estudianteId): int {
+    public function crearAsistenciaParaEstudiante(Asistencia $asistencia,int $sesionId,int $estudianteId,int $qrEntradaId): int {
         
         
-        $query = 'INSERT INTO "Asistencia" (sesion_id, estudiante_id,fecha_llegada) 
-        VALUES (:sesion_id, :estudiante_id, :fecha_llegada)';
+        $query = 'INSERT INTO "Asistencia" (sesion_id, estudiante_id,fecha_llegada, qr_entrada_id) 
+        VALUES (:sesion_id, :estudiante_id, :fecha_llegada, :qr_entrada_id)';
         $stmt = $this->db->prepare($query);
 
         $stmt->execute([
             'sesion_id' => $sesionId,
             'estudiante_id' => $estudianteId,
-            'fecha_llegada' => $asistencia->fecha_llegada
+            'fecha_llegada' => $asistencia->fecha_llegada,
+            'qr_entrada_id' => $qrEntradaId
         ]);
 
         return (int) $this->db->lastInsertId();
     }
-    public function cerrarAsistenciaParaEstudiante(Asistencia $asistencia, int $sesionId, int $estudianteId): bool {
+    public function cerrarAsistenciaParaEstudiante(Asistencia $asistencia, int $sesionId, int $estudianteId,int $qrSalidaId): bool {
         $query = 'UPDATE "Asistencia" 
                  SET fecha_salida = :fecha_salida, estado = :estado, 
-                 estudiante_id = :estudiante_id 
+                 estudiante_id = :estudiante_id, qr_salida_id = :qr_salida_id
                  WHERE sesion_id = :sesion_id AND estudiante_id = :estudiante_id';
         $stmt = $this->db->prepare($query);
 
@@ -53,29 +48,32 @@ class AsistenciaRepository{
             'estudiante_id' => $estudianteId,
             'fecha_salida' => $asistencia->fecha_salida,
             'estado' => AsistenciaEstadoEnum::FINALIZADO->value,
+            'qr_salida_id' => $qrSalidaId
         ]);
     }
-     public function crearAsistenciaParaEncargado(Asistencia $asistencia,int $sesionId,int $encargadoId): int {
+     public function crearAsistenciaParaEncargado(Asistencia $asistencia,int $sesionId,int $encargadoId,int $qrEntradaId): int {
         
         
-        $query = 'INSERT INTO "Asistencia" (sesion_id, encargado_id,fecha_llegada,observaciones) 
-        VALUES (:sesion_id, :encargado_id, :fecha_llegada,:observaciones)';
+        $query = 'INSERT INTO "Asistencia" (sesion_id, encargado_id,fecha_llegada,observaciones, qr_entrada_id) 
+        VALUES (:sesion_id, :encargado_id, :fecha_llegada,:observaciones, :qr_entrada_id)';
         $stmt = $this->db->prepare($query);
 
         $stmt->execute([
             'sesion_id' => $sesionId,
             'encargado_id' => $encargadoId,
             'fecha_llegada' => $asistencia->fecha_llegada,
-            'observaciones' => $asistencia->observaciones
+            'observaciones' => $asistencia->observaciones,
+            'qr_entrada_id' => $qrEntradaId
         ]);
 
         return (int) $this->db->lastInsertId();
     }
 
-    public function cerrarAsistenciaParaEncargado(Asistencia $asistencia, int $sesionId, int $encargadoId): bool {
+    public function cerrarAsistenciaParaEncargado(Asistencia $asistencia, int $sesionId, int $encargadoId,int $qrSalidaId): bool {
         $query = 'UPDATE "Asistencia" 
                  SET fecha_salida = :fecha_salida, estado = :estado, 
-                 observaciones = :observaciones, encargado_id = :encargado_id 
+                 observaciones = :observaciones, encargado_id = :encargado_id,
+                    qr_salida_id = :qr_salida_id
                  WHERE sesion_id = :sesion_id AND encargado_id = :encargado_id';
         $stmt = $this->db->prepare($query);
 
@@ -84,7 +82,8 @@ class AsistenciaRepository{
             'encargado_id' => $encargadoId,
             'fecha_salida' => $asistencia->fecha_salida,
             'estado' => AsistenciaEstadoEnum::FINALIZADO->value,
-            'observaciones' => $asistencia->observaciones
+            'observaciones' => $asistencia->observaciones,
+            'qr_salida_id' => $qrSalidaId
         ]);
     }
     public function actualizarAsistencia(int $id, Asistencia $asistencia): bool {
@@ -100,6 +99,17 @@ class AsistenciaRepository{
             'fecha_llegada' => $asistencia->fecha_llegada,
             'fecha_salida' => $asistencia->fecha_salida,
             'observaciones' => $asistencia->observaciones,
+        ]);
+    }
+    public function actualizarAsistenciaObservaciones(int $id, ?string $observaciones): bool {
+        $query = 'UPDATE "Asistencia" 
+                 SET observaciones = :observaciones
+                 WHERE id = :id';
+        $stmt = $this->db->prepare($query);
+
+        return $stmt->execute([
+            'id' => $id,
+            'observaciones' => $observaciones,
         ]);
     }
 
@@ -134,5 +144,88 @@ class AsistenciaRepository{
             'estado' => AsistenciaEstadoEnum::CANCELADO->value
         ]);
     }
+   
+    public function obtenerAsistenciaParaEncargadoEnSesionDatoEstado(int $sesionId, int $encargadoId, string $estado): ?Asistencia {
+        $query = 'SELECT a.*, s.fecha_apertura, s.fecha_cierre, s.estado as estado_sesion, 
+                     s.encargado_apertura_id, s.encargado_cierre_id, 
+                     s.observaciones as observaciones_sesion 
+              FROM "Asistencia" a
+              JOIN "Sesion" s ON a.sesion_id = s.id
+              WHERE a.sesion_id = :sesion_id AND a.encargado_id = :encargado_id 
+              AND a.estado = :estado ORDER BY a.id DESC LIMIT 1';
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            'sesion_id' => $sesionId,
+            'encargado_id' => $encargadoId,
+            'estado' => $estado
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? $this->mapearAsistencia($row) : null;
+    }
+    public function obtenerAsistenciaParaEstudianteEnSesionDatoEstado(int $sesionId, int $estudianteId, string $estado): ?Asistencia {
+        $query = 'SELECT a.*, s.fecha_apertura, s.fecha_cierre, s.estado as estado_sesion, 
+                     s.encargado_apertura_id, s.encargado_cierre_id, 
+                     s.observaciones as observaciones_sesion 
+              FROM "Asistencia" a
+              JOIN "Sesion" s ON a.sesion_id = s.id
+              WHERE a.sesion_id = :sesion_id AND a.estudiante_id = :estudiante_id 
+              AND a.estado = :estado ORDER BY a.id DESC LIMIT 1';
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            'sesion_id' => $sesionId,
+            'estudiante_id' => $estudianteId,
+            'estado' => $estado
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        return $row ? $this->mapearAsistencia($row) : null;
+    }
+    private function mapearAsistencia(array $data): Asistencia{
+        return new Asistencia(
+            id: $data['id'],
+            fecha_llegada: $data['fecha_llegada'],
+            fecha_salida: $data['fecha_salida'],
+            estado: $data['estado'],
+            observaciones: $data['observaciones'],
+            encargado_id: $data['encargado_id'],
+            estudiante_id: $data['estudiante_id'],
+            sesion_id: $data['sesion_id'],
+            es_cerrado_por_sistema: $data['es_cerrado_por_sistema'] === 't',
+            qr_entrada_id: $data['qr_entrada_id'],
+            qr_salida_id: $data['qr_salida_id'],
+            sesion: new Sesion(
+                id: $data['sesion_id'],
+                fecha_apertura: $data['fecha_apertura'],
+                fecha_cierre: $data['fecha_cierre'],
+                estado: $data['estado_sesion'],
+                encargado_apertura_id: $data['encargado_apertura_id'],
+                encargado_cierre_id: $data['encargado_cierre_id'],
+                observaciones: $data['observaciones_sesion']
+            )
+        );
 
+    }
+    public function obtenerQRDadoEstadoYToken(string $estado, string $token): ?Qr {
+        $query = 'SELECT * FROM "Qr" WHERE estado = :estado AND token = :token ORDER BY id DESC LIMIT 1';
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            'estado' => $estado,
+            'token' => $token
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        // return new Qr(
+        //     id: $row['id'],
+        //     token: $row['token'],
+        //     estado: $row['estado'],
+        //     objetivo: $row['objetivo'],
+        //     sesion_id: $row['sesion_id']
+        //  );
+        return $row ? new Qr(
+            id: $row['id'],
+            token: $row['token'],
+            estado: $row['estado'],
+            objetivo: $row['objetivo'],
+            sesion_id: $row['sesion_id']
+        ) : null;
+    }
 }

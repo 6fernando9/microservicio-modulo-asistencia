@@ -2,8 +2,6 @@
 namespace App\Negocio\Controllers;
 
 use App\Negocio\Services\SesionService;
-use App\Negocio\Dtos\Sesion\SesionAperturaDTO;
-use App\Negocio\Dtos\Sesion\SesionCierreDTO;
 use App\Negocio\Dtos\Sesion\SesionUpdateDTO;
 use App\Negocio\Exceptions\BadRequestException;
 use App\Shared\Utils\RequestUtils;
@@ -83,6 +81,22 @@ class SesionController {
             $sesion = $this->sesionService->actualizarSesion($id, $resultado->getValor());
             
             return RequestUtils::sendResponse($sesion,200);
+        } catch (Throwable $e) {
+            return RequestUtils::handleError($e);
+        }
+    }
+    public function obtenerAsistenciasDeSesion(int $sesionId) {
+        try {
+            $asistencias = $this->sesionService->obtenerAsistenciasDeSesion($sesionId);
+            return RequestUtils::sendResponse($asistencias);
+        } catch (Throwable $e) {
+            return RequestUtils::handleError($e);
+        }
+    }
+    public function obtenerQrsDeSesion(int $sesionId) {
+        try {
+            $qr = $this->sesionService->obtenerQrsDeSesion($sesionId);
+            return RequestUtils::sendResponse($qr);
         } catch (Throwable $e) {
             return RequestUtils::handleError($e);
         }

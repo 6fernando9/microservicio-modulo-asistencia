@@ -1,6 +1,8 @@
 <?php
 
 use App\Datos\Config\Database;
+use App\Negocio\Routers\AsistenciaRoutes;
+use App\Negocio\Routers\QrRoutes;
 use App\Negocio\Routers\SesionRoutes;
 use App\Shared\Utils\Router;
 //CORS
@@ -26,6 +28,8 @@ try {
 
     // 4. Cargar rutas
     SesionRoutes::define($router, $db);
+    AsistenciaRoutes::define($router, $db);
+    QrRoutes::define($router, $db);
 
     // 5. ¡Ejecutar!
     //levantar con php -S localhost:8080 -t public
