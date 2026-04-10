@@ -1,7 +1,10 @@
 <?php
 namespace App\Shared\Utils;
 use App\Negocio\Exceptions\AppException;
-
+use App\Negocio\Exceptions\BadRequestException;
+use App\Negocio\Exceptions\InternalServerException;
+use App\Negocio\Exceptions\NotFoundException;
+use App\Negocio\Exceptions\UnauthorizedException;
 use Throwable;
 class RequestUtils {    
     public static function sendResponse(mixed $data, int $code = 200) {
@@ -92,5 +95,62 @@ class RequestUtils {
     public static function redirect(string $url) {
         header("Location: $url");
         exit;
+    }
+    public static function isOkHttpCode(int $httpStatus){
+        return $httpStatus == 200 || $httpStatus == 201 || $httpStatus == 204;
+    }
+
+    public static function fetch(string $url, string $method = 'GET', $body = null): array {
+        $ch = curl_init($url);
+        $token = self::getAuthToken();
+        $method = strtoupper($method); 
+        
+        $headers = [
+            "Accept: application/json",
+            "Content-Type: application/json"
+        ];
+        
+        if ($token) {
+            $headers[] = "Authorization: " . $token;
+        }
+
+        // --- CONFIGURACIÓN DE TIMEOUT ---
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // 5 segundos para conectar
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);        // 10 segundos máximo para la respuesta
+        // --------------------------------
+
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method); 
+
+        if ($body !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        }
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        // 1. Error de conexión o Timeout
+        if ($response === false) {
+            throw new InternalServerException("Error de comunicación con el microservicio: $error");
+        }
+
+        $data = json_decode($response, true);
+
+        // 2. Manejo dinámico de errores según el código HTTP
+        if (!self::isOkHttpCode($httpCode)) {
+            $mensaje = $data['message'] ?? "Error en el microservicio externo ($url)";
+
+            match ($httpCode) {
+                404 => throw new NotFoundException($mensaje),
+                401, 403 => throw new UnauthorizedException($mensaje), // Si tienes esta excepción
+                500 => throw new InternalServerException("Error crítico en el microservicio: $mensaje"),
+                default => throw new BadRequestException($mensaje, $httpCode),
+            };
+        }
+
+        return $data;
     }
 }

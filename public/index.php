@@ -1,10 +1,7 @@
 <?php
 
 use App\Datos\Config\Database;
-use App\Negocio\Routers\AuthRoutes;
-use App\Negocio\Routers\EncargadoRoutes;
-use App\Negocio\Routers\EstudianteRoutes;
-use App\Negocio\Routers\UsuarioRoutes;
+use App\Negocio\Routers\SesionRoutes;
 use App\Shared\Utils\Router;
 //CORS
 header("Access-Control-Allow-Origin: *"); 
@@ -16,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     http_response_code(200);
     exit;
 }
+date_default_timezone_set('America/La_Paz');
 require_once __DIR__ . '/../src/autoload.php';
 
 
@@ -27,11 +25,7 @@ try {
     $router = new Router();
 
     // 4. Cargar rutas
-    
-    EncargadoRoutes::define($router, $db);
-    EstudianteRoutes::define($router, $db);
-    UsuarioRoutes::define($router, $db);
-    AuthRoutes::define($router, $db);
+    SesionRoutes::define($router, $db);
 
     // 5. ¡Ejecutar!
     //levantar con php -S localhost:8080 -t public

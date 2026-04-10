@@ -50,7 +50,9 @@ class SesionRepository {
         return (int) $this->db->lastInsertId();
     }
     public function cerrarSesion(int $id, string $fecha_cierre, ?string $observaciones, int $encargado_cierre_id): bool {
-        $query = 'UPDATE "Sesion" SET fecha_cierre = :fecha_cierre, estado = :estado, observaciones = :observaciones, encargado_cierre_id = :encargado_cierre_id WHERE id = :id';
+        $query = 'UPDATE "Sesion" 
+        SET fecha_cierre = :fecha_cierre, estado = :estado, observaciones = :observaciones,
+         encargado_cierre_id = :encargado_cierre_id WHERE id = :id';
 
         $stmt = $this->db->prepare($query);
 

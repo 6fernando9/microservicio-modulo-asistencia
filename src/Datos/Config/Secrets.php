@@ -26,4 +26,9 @@ class Secrets {
     public static function jwtSecretKey() { return self::get('JWT_SECRET_KEY', 'supersecretkey'); }
     public static function jwtExpirationMinutes() { return self::get('JWT_EXPIRATION_MINUTES', 60); }
     public static function jwtAlgorithm() { return self::get('JWT_ALGORITHM', 'HS256'); }
+    
+    public static function microservicioUsuariosURL() { return self::get('MS_USUARIOS_URL'); }
+    public static function microservicioArticulosURL() { return self::get('MS_ARTICULOS_URL'); }
+    public static function microservicioSolicitudesURL() { return self::get('MS_SOLICITUDES_URL'); }
+    public static function microservicioAsistenciasURL() { return self::get('MS_ASISTENCIAS_URL'); }
 }
