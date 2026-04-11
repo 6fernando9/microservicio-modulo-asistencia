@@ -13,15 +13,19 @@ class AsistenciaRepository{
     ){}
 
     public function obtenerAsistenciaPorId(int $id): ?Asistencia {
-        #$stmt = $this->db->prepare('SELECT * FROM "Asistencia" a JOIN "Sesion" ON "Asistencia".sesion_id = "Sesion".id WHERE "Asistencia".id = :id');
-        $stmt = $this->db->prepare('SELECT a.*, s.fecha_apertura, s.fecha_cierre, s.estado AS estado_sesion, s.encargado_apertura_id, s.encargado_cierre_id, s.id AS sesion_id, s.observaciones AS observaciones_sesion
-        FROM "Asistencia" a JOIN "Sesion" s ON a.sesion_id = s.id WHERE a.id = :id');
+        $query = 'SELECT a.*, s.fecha_apertura, s.fecha_cierre, 
+            s.estado AS estado_sesion, s.encargado_apertura_id, 
+            s.encargado_cierre_id, s.id AS sesion_id, 
+            s.observaciones AS observaciones_sesion
+            FROM "Asistencia" a 
+            JOIN "Sesion" s ON a.sesion_id = s.id 
+            WHERE a.id = :id';
+        $stmt = $this->db->prepare($query);
         $stmt->execute(['id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? $this->mapearAsistencia($row) : null;
+        return $row ? $this->mapearAsistenciaConSesion($row) : null;
     }
     public function crearAsistenciaParaEstudiante(Asistencia $asistencia,int $sesionId,int $estudianteId,int $qrEntradaId): int {
-        
         
         $query = 'INSERT INTO "Asistencia" (sesion_id, estudiante_id,fecha_llegada, qr_entrada_id) 
         VALUES (:sesion_id, :estudiante_id, :fecha_llegada, :qr_entrada_id)';
@@ -36,22 +40,7 @@ class AsistenciaRepository{
 
         return (int) $this->db->lastInsertId();
     }
-    public function cerrarAsistenciaParaEstudiante(Asistencia $asistencia, int $sesionId, int $estudianteId,int $qrSalidaId): bool {
-        $query = 'UPDATE "Asistencia" 
-                 SET fecha_salida = :fecha_salida, estado = :estado, 
-                 estudiante_id = :estudiante_id, qr_salida_id = :qr_salida_id
-                 WHERE sesion_id = :sesion_id AND estudiante_id = :estudiante_id';
-        $stmt = $this->db->prepare($query);
-
-        return $stmt->execute([
-            'sesion_id' => $sesionId,
-            'estudiante_id' => $estudianteId,
-            'fecha_salida' => $asistencia->fecha_salida,
-            'estado' => AsistenciaEstadoEnum::FINALIZADO->value,
-            'qr_salida_id' => $qrSalidaId
-        ]);
-    }
-     public function crearAsistenciaParaEncargado(Asistencia $asistencia,int $sesionId,int $encargadoId,int $qrEntradaId): int {
+    public function crearAsistenciaParaEncargado(Asistencia $asistencia,int $sesionId,int $encargadoId,int $qrEntradaId): int {
         
         
         $query = 'INSERT INTO "Asistencia" (sesion_id, encargado_id,fecha_llegada,observaciones, qr_entrada_id) 
@@ -69,6 +58,23 @@ class AsistenciaRepository{
         return (int) $this->db->lastInsertId();
     }
 
+
+    public function cerrarAsistenciaParaEstudiante(Asistencia $asistencia, int $sesionId, int $estudianteId,int $qrSalidaId): bool {
+        $query = 'UPDATE "Asistencia" 
+                 SET fecha_salida = :fecha_salida, estado = :estado, 
+                 estudiante_id = :estudiante_id, qr_salida_id = :qr_salida_id
+                 WHERE sesion_id = :sesion_id AND estudiante_id = :estudiante_id';
+        $stmt = $this->db->prepare($query);
+
+        return $stmt->execute([
+            'sesion_id' => $sesionId,
+            'estudiante_id' => $estudianteId,
+            'fecha_salida' => $asistencia->fecha_salida,
+            'estado' => AsistenciaEstadoEnum::FINALIZADO->value,
+            'qr_salida_id' => $qrSalidaId
+        ]);
+    }
+     
     public function cerrarAsistenciaParaEncargado(Asistencia $asistencia, int $sesionId, int $encargadoId,int $qrSalidaId): bool {
         $query = 'UPDATE "Asistencia" 
                  SET fecha_salida = :fecha_salida, estado = :estado, 
@@ -160,7 +166,7 @@ class AsistenciaRepository{
             'estado' => $estado
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? $this->mapearAsistencia($row) : null;
+        return $row ? $this->mapearAsistenciaConSesion($row) : null;
     }
     public function obtenerAsistenciaParaEstudianteEnSesionDatoEstado(int $sesionId, int $estudianteId, string $estado): ?Asistencia {
         $query = 'SELECT a.*, s.fecha_apertura, s.fecha_cierre, s.estado as estado_sesion, 
@@ -178,9 +184,9 @@ class AsistenciaRepository{
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        return $row ? $this->mapearAsistencia($row) : null;
+        return $row ? $this->mapearAsistenciaConSesion($row) : null;
     }
-    private function mapearAsistencia(array $data): Asistencia{
+    private function mapearAsistenciaConSesion(array $data): Asistencia{
         return new Asistencia(
             id: $data['id'],
             fecha_llegada: $data['fecha_llegada'],
@@ -205,27 +211,56 @@ class AsistenciaRepository{
         );
 
     }
-    public function obtenerQRDadoEstadoYToken(string $estado, string $token): ?Qr {
-        $query = 'SELECT * FROM "Qr" WHERE estado = :estado AND token = :token ORDER BY id DESC LIMIT 1';
-        $stmt = $this->db->prepare($query);
-        $stmt->execute([
-            'estado' => $estado,
-            'token' => $token
-        ]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        // return new Qr(
-        //     id: $row['id'],
-        //     token: $row['token'],
-        //     estado: $row['estado'],
-        //     objetivo: $row['objetivo'],
-        //     sesion_id: $row['sesion_id']
-        //  );
-        return $row ? new Qr(
-            id: $row['id'],
-            token: $row['token'],
-            estado: $row['estado'],
-            objetivo: $row['objetivo'],
-            sesion_id: $row['sesion_id']
-        ) : null;
+    private function mapearAsistencia(array $data): Asistencia{
+        return new Asistencia(
+            id: $data['id'],
+            fecha_llegada: $data['fecha_llegada'],
+            fecha_salida: $data['fecha_salida'],
+            estado: $data['estado'],
+            observaciones: $data['observaciones'],
+            encargado_id: $data['encargado_id'],
+            estudiante_id: $data['estudiante_id'],
+            sesion_id: $data['sesion_id'],
+            es_cerrado_por_sistema: $data['es_cerrado_por_sistema'] === 't'
+        );
+
     }
+    
+
+
+    public function obtenerAsistenciasDeSesion(int $id): array {
+        
+        $query = 'SELECT a.*
+              FROM "Asistencia" a 
+              WHERE a.sesion_id = :id';
+        $stmt = $this->db->prepare($query);
+        $stmt->execute(['id' => $id]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map(fn($row) => $this->mapearAsistencia($row), $rows);
+        
+    }
+     public function existeAsistenciasConQr(int $qrId): bool {
+        $query = 'SELECT EXISTS(SELECT 1 FROM "Asistencia" WHERE qr_entrada_id = :qrId OR qr_salida_id = :qrId)';
+        $stmt = $this->db->prepare($query);
+        $stmt->execute(['qrId' => $qrId]);
+        return $stmt->fetchColumn();
+    }
+    public function marcarAsistenciasCerradasPorSistema(int $sesionId): bool {
+        
+        $query = 'UPDATE "Asistencia" 
+        SET estado = :estado, es_cerrado_por_sistema = true, fecha_salida = :fecha_salida
+        WHERE sesion_id = :sesion_id AND fecha_salida IS NULL';
+        $stmt = $this->db->prepare($query);
+        return $stmt->execute([
+            'sesion_id' => $sesionId,
+            'estado' => AsistenciaEstadoEnum::FINALIZADO->value,
+            'fecha_salida' => date('Y-m-d H:i:s')
+        ]);
+    }
+    public function existeAsistenciasEnSesion(int $id): bool {
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM "Asistencia" WHERE sesion_id = :sesion_id');
+        $stmt->execute(['sesion_id' => $id]);
+        return (int) $stmt->fetchColumn() > 0;
+    }
+    
 }

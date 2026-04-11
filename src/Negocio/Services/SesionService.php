@@ -3,9 +3,12 @@ namespace App\Negocio\Services;
 
 use App\Datos\Config\Secrets;
 use App\Datos\Models\Sesion;
+use App\Datos\Repository\AsistenciaRepository;
+use App\Datos\Repository\QrRepository;
 use App\Datos\Repository\SesionRepository;
 use App\Negocio\Dtos\Sesion\SesionUpdateDTO;
 use App\Negocio\Exceptions\BadRequestException;
+use App\Negocio\Exceptions\InternalServerException;
 use App\Negocio\Exceptions\NotFoundException;
 use App\Shared\Enums\SesionEstadoEnum;
 use App\Shared\Utils\RequestUtils;
@@ -13,7 +16,9 @@ use Throwable;
 
 class SesionService{
     public function __construct(
-        private SesionRepository $sesionRepository
+        private SesionRepository $sesionRepository,
+        private QrRepository $qrRepository,
+        private AsistenciaRepository $asistenciaRepository
     ){}
     public function listarSesiones(): array {
         
@@ -64,15 +69,12 @@ class SesionService{
             
             $url = Secrets::microservicioUsuariosURL() . "/api/encargado/obtener-encargados";
             $usuarios = RequestUtils::fetch($url, 'POST', ['ids' => array_values(array_unique($ids))]);
-            // 4. Crear mapa e hidratar el modelo
             $mapa = [];
             foreach ($usuarios as $u) {
                 $mapa[$u['id']] = $u;
             }
             $sesion->encargado_apertura = $mapa[$sesion->encargado_apertura_id] ?? null;
             $sesion->encargado_cierre = $mapa[$sesion->encargado_cierre_id] ?? null;
-
-           
         }
 
         return $sesion;
@@ -83,9 +85,9 @@ class SesionService{
         if ($existeAperturaAbierta) {
             throw new BadRequestException("Ya existe una sesión abierta. No se puede aperturar otra hasta que se cierre la actual.");
         }
-        $url = Secrets::microservicioUsuariosURL() . "/api/encargado/sesion";
+        $url = Secrets::microservicioUsuariosURL() . "/api/usuario/encargado-sesion";
         $res = RequestUtils::fetch($url);
-        #$usuarioDto = Usuario::mapearUsuario($data['data']);
+
         $encargadoId = $res['encargado']['id'] ?? null;
         $fechaApertura = date('Y-m-d H:i:s');
         $nuevaSesion = new Sesion(
@@ -94,13 +96,12 @@ class SesionService{
             fecha_cierre: null,
             estado: null,
             observaciones: $observaciones,
-            #encargado_apertura_id: $usuarioDto->encargado->id, 
             encargado_apertura_id: $encargadoId,
             encargado_cierre_id: null
         );
 
         
-        $sesionCreadaId = $this->sesionRepository->aperturarSesion($nuevaSesion);
+        $sesionCreadaId = $this->sesionRepository->aperturarSesion($nuevaSesion, $encargadoId);
         if (!$sesionCreadaId) {
             throw new BadRequestException("Error al aperturar la sesión.");
         }
@@ -116,14 +117,14 @@ class SesionService{
 
         $sesionExistente = $this->sesionRepository->buscarPorId($id);
         if (!$sesionExistente) {
-            throw new BadRequestException("La sesión con ID $id no existe.");
+            throw new NotFoundException("La sesión con ID $id no existe.");
         }
 
         if ($sesionExistente->estado === SesionEstadoEnum::CERRADA->value) {
             throw new BadRequestException("La sesión con ID $id ya está cerrada.");
         }
 
-        $url = Secrets::microservicioUsuariosURL() . "/api/encargado/sesion";
+        $url = Secrets::microservicioUsuariosURL() . "/api/usuario/encargado-sesion";
     
         $usuario = RequestUtils::fetch($url);
 
@@ -133,25 +134,29 @@ class SesionService{
             throw new BadRequestException("No se pudo identificar al encargado para realizar el cierre.");
         }
         $fechaCierre = date('Y-m-d H:i:s');
-        $exitoCierre = $this->sesionRepository->cerrarSesion(
-            id: $id,
+        $sesionAActualizar = new Sesion(
+            id: null,
+            fecha_apertura: null,
             fecha_cierre: $fechaCierre,
+            estado: null,
             observaciones: $observaciones,
-            encargado_cierre_id: $encargadoId
+            encargado_apertura_id: null,
+            encargado_cierre_id: null
         );
+        $exito = $this->sesionRepository->cerrarSesion($id, $sesionAActualizar, $encargadoId);
 
-        if (!$exitoCierre) {
-            throw new BadRequestException("Error interno al intentar cerrar la sesión con ID $id.");
-        }
-        $exito = $this->sesionRepository->marcarAsistenciasCerradasPorSistema($id);
         if (!$exito) {
-            throw new BadRequestException("Error interno al intentar marcar asistencias como cerradas por sistema para la sesión con ID $id.");
+            throw new InternalServerException("Error interno al intentar cerrar la sesión con ID $id.");
         }
-        $exito = $this->sesionRepository->marcarQrsInactivosPorSistema($id);
+        $exito = $this->asistenciaRepository->marcarAsistenciasCerradasPorSistema($id);
         if (!$exito) {
-            throw new BadRequestException("Error interno al intentar marcar QRs como inactivos por sistema para la sesión con ID $id.");
+            throw new InternalServerException("Error interno al intentar marcar asistencias como cerradas por sistema para la sesión con ID $id.");
         }
-        #return $sesionExistente;
+        $exito = $this->qrRepository->marcarQrsInactivosPorSistema($id);
+        if (!$exito) {
+            throw new InternalServerException("Error interno al intentar marcar QRs como inactivos por sistema para la sesión con ID $id.");
+        }
+        
         $sesionExistente->estado = SesionEstadoEnum::CERRADA->value;
         $sesionExistente->fecha_cierre = $fechaCierre;
         $sesionExistente->encargado_cierre_id = $encargadoId;
@@ -164,7 +169,7 @@ class SesionService{
         if (!$sesionExistente) {
             throw new BadRequestException("La sesión con ID $id no existe.");
         }
-        $existeAsistencias = $this->sesionRepository->existeAsistenciasEnSesion($id);
+        $existeAsistencias = $this->asistenciaRepository->existeAsistenciasEnSesion($id);
         #$existeQr = $this->sesionRepository->existeQrEnSesion($id);
         if ($existeAsistencias ) {
             throw new BadRequestException("No se puede eliminar la sesión con ID $id porque tiene asistencias asociados.");
@@ -229,7 +234,7 @@ class SesionService{
             throw new NotFoundException("La sesión con ID $sesionId no existe.");
         }
 
-        $asistencias = $this->sesionRepository->obtenerAsistenciasDeSesion($sesionId);
+        $asistencias = $this->asistenciaRepository->obtenerAsistenciasDeSesion($sesionId);
         if (empty($asistencias)) {
             return [];
         }
@@ -243,37 +248,28 @@ class SesionService{
         $idsUnicos = array_values(array_unique($idsActores));
 
         if (!empty($idsUnicos)) {
-            try {
-                $url = Secrets::microservicioUsuariosURL() . "/api/usuario/obtener-usuarios";
-                $response = RequestUtils::fetch($url, 'POST', ['ids' => $idsUnicos]);
-
-                // IMPORTANTE: Verifica si los usuarios vienen dentro de una llave 'data'
-                $dataUsuarios = $response['data'] ?? $response;
-
-                $mapaUsuarios = [];
-                foreach ($dataUsuarios as $usuario) {
-                    // Forzamos que el ID sea entero para que coincida en la búsqueda
-                    $mapaUsuarios[(int)$usuario['id']] = $usuario;
-                }
-
-                // USAMOS REFERENCIA (&) para modificar los objetos originales dentro del array $asistencias
-                foreach ($asistencias as &$asistencia) {
-                    $eId = $asistencia->estudiante_id ? (int)$asistencia->estudiante_id : null;
-                    $encId = $asistencia->encargado_id ? (int)$asistencia->encargado_id : null;
-
-                    if ($eId && isset($mapaUsuarios[$eId])) {
-                        $asistencia->estudiante = $mapaUsuarios[$eId];
-                    }
-                    
-                    if ($encId && isset($mapaUsuarios[$encId])) {
-                        $asistencia->encargado = $mapaUsuarios[$encId];
-                    }
-                }
-                unset($asistencia); // Rompemos la referencia por seguridad
-
-            } catch (\Throwable $e) {
-                // Loguear el error si es necesario: error_log($e->getMessage());
+            
+            $url = Secrets::microservicioUsuariosURL() . "/api/usuario/obtener-usuarios";
+            $response = RequestUtils::fetch($url, 'POST', ['ids' => $idsUnicos]);
+            $dataUsuarios = $response['data'] ?? $response;
+            $mapaUsuarios = [];
+            foreach ($dataUsuarios as $usuario) {
+                
+                $mapaUsuarios[(int)$usuario['id']] = $usuario;
             }
+            // USAMOS REFERENCIA (&) para modificar los objetos originales dentro del array $asistencias
+            foreach ($asistencias as &$asistencia) {
+                $eId = $asistencia->estudiante_id ? (int)$asistencia->estudiante_id : null;
+                $encId = $asistencia->encargado_id ? (int)$asistencia->encargado_id : null;
+                if ($eId && isset($mapaUsuarios[$eId])) {
+                    $asistencia->estudiante = $mapaUsuarios[$eId];
+                }
+                
+                if ($encId && isset($mapaUsuarios[$encId])) {
+                    $asistencia->encargado = $mapaUsuarios[$encId];
+                }
+            }
+            unset($asistencia);
         }
 
         return $asistencias;
@@ -283,8 +279,7 @@ class SesionService{
         if (!$sesionExistente) {
             throw new NotFoundException("La sesión con ID $sesionId no existe.");
         }
-
-        $qrs = $this->sesionRepository->obtenerQrsDeSesion($sesionId);
+        $qrs = $this->qrRepository->obtenerQrsDeSesion($sesionId);
         return $qrs;
     }
 }

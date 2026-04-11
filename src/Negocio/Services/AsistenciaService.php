@@ -4,6 +4,7 @@ namespace App\Negocio\Services;
 use App\Datos\Config\Secrets;
 use App\Datos\Models\Asistencia;
 use App\Datos\Repository\AsistenciaRepository;
+use App\Datos\Repository\QrRepository;
 use App\Datos\Repository\SesionRepository;
 use App\Negocio\Exceptions\BadRequestException;
 use App\Negocio\Exceptions\InternalServerException;
@@ -17,23 +18,17 @@ use App\Shared\Utils\RequestUtils;
 class AsistenciaService{
     public function __construct(
         private AsistenciaRepository $asistenciaRepository,
-        private SesionRepository $sesionRepository
+        private SesionRepository $sesionRepository,
+        private QrRepository $qrRepository
     ){}
-    // public function obtenerAsistenciaPorId(int $id): Asistencia {
-    //     $asistencia = $this->asistenciaRepository->obtenerAsistenciaPorId($id);
-    //     if (!$asistencia) {
-    //         throw new NotFoundException("La asistencia con ID $id no existe.");
-    //     }
-    //     return $asistencia;
-    // }
+    
     public function obtenerAsistenciaPorId(int $id): Asistencia {
-        // 1. Buscar la asistencia en la BD local
+        
         $asistencia = $this->asistenciaRepository->obtenerAsistenciaPorId($id);
         if (!$asistencia) {
             throw new NotFoundException("La asistencia con ID $id no existe.");
         }
-
-        // 2. Identificar quién es el actor (Estudiante o Encargado)
+        
         $idActor = $asistencia->estudiante_id ?? $asistencia->encargado_id;
 
         if ($idActor) {
@@ -43,7 +38,7 @@ class AsistenciaService{
             $respuesta = RequestUtils::fetch($url, 'POST', ['ids' => [$idActor]]);
             
             if (!empty($respuesta)) {
-                $datosActor = $respuesta[0]; // Tomamos el primer (y único) resultado
+                $datosActor = $respuesta[0];
                 
                 if ($asistencia->estudiante_id) {
                     $asistencia->estudiante = $datosActor;
@@ -53,19 +48,16 @@ class AsistenciaService{
                     $asistencia->estudiante = null;
                 }
             }
-           
         }
 
         return $asistencia;
     }
-    public function crearAsistencia(?string $observaciones,string $token) {
-        // 1. Validar Sesión
+    public function crearAsistencia(?string $observaciones,string $token):Asistencia {
+        
         $sesionAbierta = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
         if (!$sesionAbierta) {
             throw new BadRequestException("No hay una sesión abierta para registrar la asistencia.");
         }
-
-        // 2. Obtener Usuario del Microservicio
         $url = Secrets::microservicioUsuariosURL() . "/api/auth/me";
         $dataUsuario = RequestUtils::fetch($url, 'GET');
         
@@ -73,13 +65,13 @@ class AsistenciaService{
         $rol = strtolower($dataUsuario['rol'] ?? 'desconocido');
         $fechaLlegada = date('Y-m-d H:i:s');
 
-        // 3. Determinar campos según el Rol
         $esEstudiante = ($rol === RolEnum::ESTUDIANTE->value);
         $esEncargado = ($rol === RolEnum::ENCARGADO->value);
+
         if (!$esEstudiante && !$esEncargado) {
             throw new BadRequestException("El rol '$rol' no está autorizado para registrar asistencias.");
         }
-        // 4. Verificación de existencia (Lógica Unificada)
+
         $asistenciaExistente = $esEstudiante 
             ? $this->asistenciaRepository->obtenerAsistenciaParaEstudianteEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value)
             : $this->asistenciaRepository->obtenerAsistenciaParaEncargadoEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value);
@@ -89,13 +81,16 @@ class AsistenciaService{
         }
   
         
-        $qrValido = $this->asistenciaRepository->obtenerQRDadoEstadoYToken(EstadoGeneralEnum::ACTIVO->value, $token);
-        if (!$qrValido || $qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
+        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
+        if (!$qrValido) {
+            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
+        }
+        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
             throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
         }
 
         $observaciones = $esEstudiante ? null : $observaciones;
-        // 5. Preparar Objeto Asistencia
+        
         $asistencia = new Asistencia(
             id: null,
             sesion_id: $sesionAbierta->id,
@@ -120,14 +115,13 @@ class AsistenciaService{
         $asistencia->id = $exito;
         return $asistencia;
     }
-    public function finalizarAsistencia(?string $observaciones,string $token) {
-        // 1. Validar Sesión
+    public function finalizarAsistencia(?string $observaciones,string $token):Asistencia {
+        
         $sesionAbierta = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
         if (!$sesionAbierta) {
             throw new BadRequestException("No hay una sesión abierta para finalizar la asistencia.");
         }
 
-        // 2. Obtener Usuario del Microservicio
         $url = Secrets::microservicioUsuariosURL() . "/api/auth/me";
         $dataUsuario = RequestUtils::fetch($url, 'GET');
         
@@ -135,14 +129,12 @@ class AsistenciaService{
         $rol = strtolower($dataUsuario['rol'] ?? 'desconocido');
         $fechaSalida = date('Y-m-d H:i:s');
 
-        // 3. Determinar campos según el Rol
         $esEstudiante = ($rol === RolEnum::ESTUDIANTE->value);
         $esEncargado = ($rol === RolEnum::ENCARGADO->value);
         if (!$esEstudiante && !$esEncargado) {
             throw new BadRequestException("El rol '$rol' no está autorizado para finalizar asistencias.");
         }
         
-        // 4. Verificación de existencia (Lógica Unificada)
         $asistenciaExistente = $esEstudiante 
             ? $this->asistenciaRepository->obtenerAsistenciaParaEstudianteEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value)
             : $this->asistenciaRepository->obtenerAsistenciaParaEncargadoEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value);
@@ -151,17 +143,18 @@ class AsistenciaService{
             throw new NotFoundException("No tienes una asistencia registrada en la sesión actual para finalizar.");
         }
 
-        $qrValido = $this->asistenciaRepository->obtenerQRDadoEstadoYToken(EstadoGeneralEnum::ACTIVO->value, $token);
-        if (!$qrValido || $qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
+        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
+        if (!$qrValido) {
+            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
+        }
+        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
             throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
         }
         $asistenciaExistente->qr_salida_id = $qrValido->id;
-
-        // 5. Actualizar Objeto Asistencia
         $asistenciaExistente->fecha_salida = $fechaSalida;
         $asistenciaExistente->estado = AsistenciaEstadoEnum::FINALIZADO->value;
         $asistenciaExistente->observaciones = $observaciones;
-        // 6. Persistencia Dinámica
+        
         $exito = $esEstudiante 
             ? $this->asistenciaRepository->cerrarAsistenciaParaEstudiante($asistenciaExistente, $sesionAbierta->id, $usuarioId, $qrValido->id)
             : $this->asistenciaRepository->cerrarAsistenciaParaEncargado($asistenciaExistente, $sesionAbierta->id, $usuarioId, $qrValido->id);

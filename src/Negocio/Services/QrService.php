@@ -2,6 +2,7 @@
 namespace App\Negocio\Services;
 
 use App\Datos\Models\Qr;
+use App\Datos\Repository\AsistenciaRepository;
 use App\Datos\Repository\QrRepository;
 use App\Datos\Repository\SesionRepository;
 use App\Negocio\Exceptions\BadRequestException;
@@ -12,7 +13,8 @@ use Throwable;
 class QrService {
     public function __construct(
         private QrRepository $qrRepository,
-        private SesionRepository $sesionRepository
+        private SesionRepository $sesionRepository,
+        private AsistenciaRepository $asistenciaRepository
     ) {}
 
     public function crearQR(string $objetivo): Qr {
@@ -21,16 +23,7 @@ class QrService {
         if (!$sesionAbierta) {
             throw new BadRequestException("No se puede crear un QR si no hay una sesión abierta.");
         }
-
-        
-        // if ($this->qrRepository->existeQrConMismoObjetivoActivo($objetivo)) {
-        //     throw new BadRequestException("Ya existe un QR activo para el objetivo: $objetivo.");
-        // }
-
-        
         $token = bin2hex(random_bytes(16));
-
-        // 4. Preparar el modelo
         $qr = new Qr(
             id: null,
             token: $token,
@@ -39,7 +32,6 @@ class QrService {
             sesion_id: $sesionAbierta->id
         );
 
-        // 5. Persistir en BD
         $id = $this->qrRepository->crearQR($qr, $sesionAbierta->id);
         
         if (!$id) {
@@ -65,17 +57,26 @@ class QrService {
     }
     
     public function inhabilitarQR(int $id): QR {
-        $this->qrRepository->cambiarEstadoQR($id, EstadoGeneralEnum::INACTIVO->value);
+        $exito = $this->qrRepository->cambiarEstadoQR($id, EstadoGeneralEnum::INACTIVO->value);
+        if (!$exito) {
+            throw new BadRequestException("Error interno al intentar inhabilitar el QR con ID $id.");
+        }
         return $this->obtenerQRPorId($id);
     }
 
 
     public function eliminarQR(int $id): void {
-        if ($this->qrRepository->existeAsistenciasConQr($id)) {
-            $this->inhabilitarQR($id);
+        if ($this->asistenciaRepository->existeAsistenciasConQr($id)) {
+            $exito = $this->inhabilitarQR($id);
+            if (!$exito) {
+                throw new BadRequestException("Error interno al intentar inhabilitar el QR con ID $id antes de eliminarlo.");
+            }
             return;
         }
 
-        $this->qrRepository->eliminarQR($id);
+        $exito = $this->qrRepository->eliminarQR($id);
+        if (!$exito) {
+            throw new BadRequestException("Error interno al intentar eliminar el QR con ID $id.");
+        }
     }
 }

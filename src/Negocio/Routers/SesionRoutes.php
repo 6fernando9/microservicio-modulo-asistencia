@@ -1,6 +1,8 @@
 <?php
 namespace App\Negocio\Routers;
 
+use App\Datos\Repository\AsistenciaRepository;
+use App\Datos\Repository\QrRepository;
 use App\Datos\Repository\SesionRepository;
 use App\Negocio\Controllers\SesionController;
 use App\Negocio\Services\SesionService;
@@ -9,9 +11,10 @@ class SesionRoutes {
     public static function define($router, $db) {
         
         $sesionRepo = new SesionRepository($db);
-        
+        $qrRepo = new QrRepository($db);
+        $asistenciaRepo = new AsistenciaRepository($db);
 
-        $service = new SesionService($sesionRepo);
+        $service = new SesionService($sesionRepo, $qrRepo, $asistenciaRepo);
         
         
         $controller = new SesionController($service);

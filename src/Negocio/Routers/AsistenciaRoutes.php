@@ -2,6 +2,7 @@
 namespace App\Negocio\Routers;
 
 use App\Datos\Repository\AsistenciaRepository;
+use App\Datos\Repository\QrRepository;
 use App\Datos\Repository\SesionRepository;
 use App\Negocio\Controllers\AsistenciaController;
 use App\Negocio\Services\AsistenciaService;
@@ -11,9 +12,10 @@ class AsistenciaRoutes {
         // 1. Instanciar Repositorios
         $asistenciaRepo = new AsistenciaRepository($db);
         $sesionRepo = new SesionRepository($db);
+        $qrRepo = new QrRepository($db);
 
         // 2. Instanciar Servicio (pasando ambos repositorios)
-        $service = new AsistenciaService($asistenciaRepo, $sesionRepo);
+        $service = new AsistenciaService($asistenciaRepo, $sesionRepo, $qrRepo);
         
         // 3. Instanciar Controlador
         $controller = new AsistenciaController($service);
