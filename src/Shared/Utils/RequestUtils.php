@@ -69,22 +69,47 @@ class RequestUtils {
 
     //     return null;
     // }
-    public static function getAuthToken(): ?string {
-        $header = null;
+    // public static function getAuthToken(): ?string {
+    //     $header = null;
 
-        // Buscamos en las diferentes posibles ubicaciones de la cabecera Authorization
+    //     // Buscamos en las diferentes posibles ubicaciones de la cabecera Authorization
+    //     if (isset($_SERVER['Authorization'])) {
+    //         $header = $_SERVER['Authorization'];
+    //     } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    //         $header = $_SERVER['HTTP_AUTHORIZATION'];
+    //     } elseif (function_exists('apache_request_headers')) {
+    //         $headers = apache_request_headers();
+    //         if (isset($headers['Authorization'])) {
+    //             $header = $headers['Authorization'];
+    //         }
+    //     }
+
+    //     return $header; // Retorna el string completo "Bearer eyJhbG..." o null
+    // }
+    
+    public static function getAuthToken(): ?string {
+        // 1. Intentar obtenerlo directamente de $_SERVER (PHP estándar)
+        if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            return $_SERVER['HTTP_AUTHORIZATION'];
+        }
+        
         if (isset($_SERVER['Authorization'])) {
-            $header = $_SERVER['Authorization'];
-        } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-            $header = $_SERVER['HTTP_AUTHORIZATION'];
-        } elseif (function_exists('apache_request_headers')) {
+            return $_SERVER['Authorization'];
+        }
+
+        // 2. Si estamos en Apache, las cabeceras pueden estar "escondidas"
+        if (function_exists('apache_request_headers')) {
             $headers = apache_request_headers();
-            if (isset($headers['Authorization'])) {
-                $header = $headers['Authorization'];
+            
+            // Normalizamos buscando en minúsculas y mayúsculas
+            foreach ($headers as $key => $value) {
+                if (strtolower($key) === 'authorization') {
+                    return $value;
+                }
             }
         }
 
-        return $header; // Retorna el string completo "Bearer eyJhbG..." o null
+        return null;
     }
     
     public static function getJsonBody(): array {

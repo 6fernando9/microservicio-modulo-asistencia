@@ -65,4 +65,18 @@ class AsistenciaController {
             return RequestUtils::handleError($e);
         }
     }
+    public function verificarTokenQR(){
+        try {
+            $datos = RequestUtils::getJsonBody();
+            $token = $datos['token_qr'] ?? null;
+            if (!$token) {
+                throw new BadRequestException("El campo 'token_qr' es obligatorio para verificar el token.");
+            }
+            $resultado = $this->asistenciaService->verificarToken($token);
+            
+            return RequestUtils::sendResponse($resultado, 200);
+        } catch (Throwable $e) {
+            return RequestUtils::handleError($e);
+        }
+    }
 }

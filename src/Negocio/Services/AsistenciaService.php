@@ -35,7 +35,7 @@ class AsistenciaService{
             
             $url = Secrets::microservicioUsuariosURL() . "/api/usuario/obtener-usuarios";
             
-            $respuesta = RequestUtils::fetch($url, 'POST', ['ids' => [$idActor]]);
+            $respuesta = RequestUtils::fetch($url, 'GET', ['ids' => [$idActor]]);
             
             if (!empty($respuesta)) {
                 $datosActor = $respuesta[0];
@@ -72,6 +72,21 @@ class AsistenciaService{
             throw new BadRequestException("El rol '$rol' no está autorizado para registrar asistencias.");
         }
 
+        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
+        if (!$qrValido) {
+            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
+        }
+        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
+            throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
+        }
+        if (strtolower($qrValido->objetivo) === RolEnum::ESTUDIANTE->value && !$esEstudiante) {
+            throw new BadRequestException("El token QR proporcionado es solo para estudiantes, pero tu rol es '$rol'.");
+            
+        }
+        if (strtolower($qrValido->objetivo) === RolEnum::ENCARGADO->value && !$esEncargado) {
+            throw new BadRequestException("El token QR proporcionado es solo para encargados, pero tu rol es '$rol'.");
+        }
+
         $asistenciaExistente = $esEstudiante 
             ? $this->asistenciaRepository->obtenerAsistenciaParaEstudianteEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value)
             : $this->asistenciaRepository->obtenerAsistenciaParaEncargadoEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value);
@@ -81,13 +96,7 @@ class AsistenciaService{
         }
   
         
-        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
-        if (!$qrValido) {
-            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
-        }
-        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
-            throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
-        }
+        
 
         $observaciones = $esEstudiante ? null : $observaciones;
         
@@ -135,6 +144,22 @@ class AsistenciaService{
             throw new BadRequestException("El rol '$rol' no está autorizado para finalizar asistencias.");
         }
         
+        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
+        if (!$qrValido) {
+            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
+        }
+        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
+            throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
+        }
+        if (strtolower($qrValido->objetivo) === RolEnum::ESTUDIANTE->value && !$esEstudiante) {
+            throw new BadRequestException("El token QR proporcionado es solo para estudiantes, pero tu rol es '$rol'.");
+            
+        }
+        if (strtolower($qrValido->objetivo) === RolEnum::ENCARGADO->value && !$esEncargado) {
+            throw new BadRequestException("El token QR proporcionado es solo para encargados, pero tu rol es '$rol'.");
+            
+        }
+        
         $asistenciaExistente = $esEstudiante 
             ? $this->asistenciaRepository->obtenerAsistenciaParaEstudianteEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value)
             : $this->asistenciaRepository->obtenerAsistenciaParaEncargadoEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value);
@@ -143,13 +168,7 @@ class AsistenciaService{
             throw new NotFoundException("No tienes una asistencia registrada en la sesión actual para finalizar.");
         }
 
-        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
-        if (!$qrValido) {
-            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
-        }
-        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
-            throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
-        }
+        
         $asistenciaExistente->qr_salida_id = $qrValido->id;
         $asistenciaExistente->fecha_salida = $fechaSalida;
         $asistenciaExistente->estado = AsistenciaEstadoEnum::FINALIZADO->value;
@@ -171,5 +190,60 @@ class AsistenciaService{
         }
          
         return $this->obtenerAsistenciaPorId($id);
+    }
+    public function verificarToken(string $token){
+
+        $sesionAbierta = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
+        if (!$sesionAbierta) {
+            throw new BadRequestException("No hay una sesión abierta para registrar la asistencia.");
+        }
+        $url = Secrets::microservicioUsuariosURL() . "/api/auth/me";
+        $dataUsuario = RequestUtils::fetch($url, 'GET');
+        
+        $usuarioId = $dataUsuario['id'];
+        $rol = strtolower($dataUsuario['rol'] ?? 'desconocido');
+
+        $esEstudiante = ($rol === RolEnum::ESTUDIANTE->value);
+        $esEncargado = ($rol === RolEnum::ENCARGADO->value);
+
+        if (!$esEstudiante && !$esEncargado) {
+            throw new BadRequestException("El rol '$rol' no está autorizado para registrar asistencias.");
+        }
+
+        $qrValido = $this->qrRepository->obtenerQRDadoToken($token);
+        if (!$qrValido) {
+            throw new NotFoundException("No se encontró un QR válido para el token proporcionado.");
+        }
+        if ($qrValido->estado !== EstadoGeneralEnum::ACTIVO->value) {
+            throw new BadRequestException("El token QR proporcionado no es válido o no está activo.");
+        }
+        if (strtolower($qrValido->objetivo) === RolEnum::ESTUDIANTE->value && !$esEstudiante) {
+            throw new BadRequestException("El token QR proporcionado es solo para estudiantes, pero tu rol es '$rol'.");
+            
+        }
+        if (strtolower($qrValido->objetivo) === RolEnum::ENCARGADO->value && !$esEncargado) {
+            throw new BadRequestException("El token QR proporcionado es solo para encargados, pero tu rol es '$rol'.");
+        }
+
+        $asistenciaExistente = $esEstudiante 
+            ? $this->asistenciaRepository->obtenerAsistenciaParaEstudianteEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value)
+            : $this->asistenciaRepository->obtenerAsistenciaParaEncargadoEnSesionDatoEstado($sesionAbierta->id, $usuarioId, AsistenciaEstadoEnum::PRESENTE->value);
+        $estadisticas = $esEstudiante 
+            ? $this->asistenciaRepository->obtenerEstadisticasAsistenciaParaEstudiante($sesionAbierta->id, $usuarioId)
+            : $this->asistenciaRepository->obtenerEstadisticasAsistenciaParaEncargado($sesionAbierta->id, $usuarioId);
+
+        if ($asistenciaExistente) {
+            return [
+                'accion' => 'CHECKOUT',
+                'fecha_llegada' => $asistenciaExistente->fecha_llegada,
+                'estadisticas' => $estadisticas
+            ];
+        }else{
+            return [
+                'accion' => 'CHECKIN',
+                'estadisticas' => $estadisticas
+            ];
+        }
+        
     }
 }

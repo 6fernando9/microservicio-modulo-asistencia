@@ -32,5 +32,7 @@ class AsistenciaRoutes {
         
         // Actualizar observaciones
         $router->put('/api/asistencia/{id}/update', [$controller, 'actualizarAsistencia']);
+        //verificar token
+        $router->post('/api/asistencia/verificar-token', [$controller, 'verificarTokenQR']);
     }
 }

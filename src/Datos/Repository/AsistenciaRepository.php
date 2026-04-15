@@ -166,7 +166,7 @@ class AsistenciaRepository{
             'estado' => $estado
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? $this->mapearAsistenciaConSesion($row) : null;
+        return $row ? $this->mapearAsistencia($row) : null;
     }
     public function obtenerAsistenciaParaEstudianteEnSesionDatoEstado(int $sesionId, int $estudianteId, string $estado): ?Asistencia {
         $query = 'SELECT a.*, s.fecha_apertura, s.fecha_cierre, s.estado as estado_sesion, 
@@ -184,7 +184,49 @@ class AsistenciaRepository{
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        return $row ? $this->mapearAsistenciaConSesion($row) : null;
+        return $row ? $this->mapearAsistencia($row) : null;
+    }
+    public function obtenerEstadisticasAsistenciaParaEstudiante(int $estudianteId, int $sesionId): array {
+        $sql = 'SELECT 
+                    COUNT(*) as total_historico,
+                    COUNT(*) FILTER (WHERE sesion_id = :sesion_id) as total_sesion
+                FROM "Asistencia" 
+                WHERE estudiante_id = :estudiante_id';
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'estudiante_id' => $estudianteId,
+            'sesion_id' => $sesionId
+        ]);
+
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'total_historico' => (int)($result['total_historico'] ?? 0),
+            'total_sesion'    => (int)($result['total_sesion'] ?? 0)
+        ];
+
+    }
+    public function obtenerEstadisticasAsistenciaParaEncargado(int $estudianteId, int $sesionId): array {
+        $sql = 'SELECT 
+                    COUNT(*) as total_historico,
+                    COUNT(*) FILTER (WHERE sesion_id = :sesion_id) as total_sesion
+                FROM "Asistencia" 
+                WHERE encargado_id = :encargado_id';
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'encargado_id' => $estudianteId,
+            'sesion_id' => $sesionId
+        ]);
+
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'total_historico' => (int)($result['total_historico'] ?? 0),
+            'total_sesion'    => (int)($result['total_sesion'] ?? 0)
+        ];
+
     }
     private function mapearAsistenciaConSesion(array $data): Asistencia{
         return new Asistencia(
@@ -239,6 +281,7 @@ class AsistenciaRepository{
         return array_map(fn($row) => $this->mapearAsistencia($row), $rows);
         
     }
+    
      public function existeAsistenciasConQr(int $qrId): bool {
         $query = 'SELECT EXISTS(SELECT 1 FROM "Asistencia" WHERE qr_entrada_id = :qrId OR qr_salida_id = :qrId)';
         $stmt = $this->db->prepare($query);

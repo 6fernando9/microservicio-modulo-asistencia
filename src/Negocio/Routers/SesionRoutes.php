@@ -5,6 +5,7 @@ use App\Datos\Repository\AsistenciaRepository;
 use App\Datos\Repository\QrRepository;
 use App\Datos\Repository\SesionRepository;
 use App\Negocio\Controllers\SesionController;
+use App\Negocio\Services\QrService;
 use App\Negocio\Services\SesionService;
 
 class SesionRoutes {
@@ -13,8 +14,8 @@ class SesionRoutes {
         $sesionRepo = new SesionRepository($db);
         $qrRepo = new QrRepository($db);
         $asistenciaRepo = new AsistenciaRepository($db);
-
-        $service = new SesionService($sesionRepo, $qrRepo, $asistenciaRepo);
+        $qrService = new QrService($qrRepo, $sesionRepo, $asistenciaRepo);
+        $service = new SesionService($sesionRepo, $qrRepo, $asistenciaRepo, $qrService);
         
         
         $controller = new SesionController($service);
@@ -28,5 +29,8 @@ class SesionRoutes {
         $router->put('/api/sesion/{id}/update', [$controller, 'actualizarSesion']);
         $router->get('/api/sesion/{id}/asistencias', [$controller, 'obtenerAsistenciasDeSesion']);
         $router->get('/api/sesion/{id}/qrs', [$controller, 'obtenerQrsDeSesion']);
+        $router->get('/api/sesion/{id}/solicitudes', [$controller, 'obtenerSolicitudesDeSesion']);
+        $router->get('/api/sesion/activa', [$controller, 'obtenerSesionActiva']);
+        $router->get('/api/sesion/activa/simple', [$controller, 'obtenerSesionActivaSimple']);
     }
 }

@@ -13,13 +13,48 @@ class SesionRepository {
     public function __construct(private PDO $db){}
 
     public function listarSesiones(): array {
-        $stmt = $this->db->query('SELECT * FROM "Sesion" ORDER BY id ASC');
+        // $stmt = $this->db->query('SELECT * FROM "Sesion" ORDER BY id ASC');
+        // $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // return array_map(fn($row) => $this->mapearASesion($row), $results);
+        $sql = 'SELECT s.*, 
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_presente) as count_presente,
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_finalizado) as count_finalizado,
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_cancelado) as count_cancelado,
+            (SELECT COUNT(*) FROM "Qr" q WHERE q.sesion_id = s.id) as count_qrs
+            FROM "Sesion" s 
+            ORDER BY s.id DESC';
+            
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'estado_presente' => AsistenciaEstadoEnum::PRESENTE->value,
+            'estado_finalizado' => AsistenciaEstadoEnum::FINALIZADO->value,
+            'estado_cancelado' => AsistenciaEstadoEnum::CANCELADO->value,
+        ]);
+        
         $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
         return array_map(fn($row) => $this->mapearASesion($row), $results);
     }
     public function buscarPorId(int $id): ?Sesion {
-        $stmt = $this->db->prepare('SELECT * FROM "Sesion" WHERE id = :id');
-        $stmt->execute(['id' => $id]);
+        // $stmt = $this->db->prepare('SELECT * FROM "Sesion" WHERE id = :id');
+        // $stmt->execute(['id' => $id]);
+        // $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        // return $row ? $this->mapearASesion($row) : null;
+        $sql = 'SELECT s.*, 
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_presente) as count_presente,
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_finalizado) as count_finalizado,
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_cancelado) as count_cancelado,
+            (SELECT COUNT(*) FROM "Qr" q WHERE q.sesion_id = s.id) as count_qrs
+            FROM "Sesion" s 
+            WHERE s.id = :id';
+            
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'id' => $id,
+            'estado_presente' => AsistenciaEstadoEnum::PRESENTE->value,
+            'estado_finalizado' => AsistenciaEstadoEnum::FINALIZADO->value,
+            'estado_cancelado' => AsistenciaEstadoEnum::CANCELADO->value,
+        ]);
+        
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ? $this->mapearASesion($row) : null;
     }
@@ -84,9 +119,21 @@ class SesionRepository {
     }
 
     public function obtenerUltimaSesionDadoEstado(string $estado): ?Sesion {
-
-        $stmt = $this->db->prepare('SELECT * FROM "Sesion" WHERE estado = :estado ORDER BY id DESC LIMIT 1');
-        $stmt->execute(['estado' => $estado]);
+        $query = 'SELECT s.*, 
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_presente) as count_presente,
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_finalizado) as count_finalizado,
+            (SELECT COUNT(*) FROM "Asistencia" a WHERE a.sesion_id = s.id AND a.estado = :estado_cancelado) as count_cancelado,
+            (SELECT COUNT(*) FROM "Qr" q WHERE q.sesion_id = s.id) as count_qrs
+            FROM "Sesion" s 
+            WHERE s.estado = :estado
+            ORDER BY s.id DESC LIMIT 1';
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            'estado' => $estado,
+            'estado_presente' => AsistenciaEstadoEnum::PRESENTE->value,
+            'estado_finalizado' => AsistenciaEstadoEnum::FINALIZADO->value,
+            'estado_cancelado' => AsistenciaEstadoEnum::CANCELADO->value
+        ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ? $this->mapearASesion($row) : null;
     }
@@ -97,7 +144,7 @@ class SesionRepository {
     }
     
     
-    private function mapearASesion(array $data): Sesion{
+    private function mapearASesion(array $data): Sesion {
         return new Sesion(
             id: $data['id'],
             fecha_apertura: $data['fecha_apertura'],
@@ -105,9 +152,12 @@ class SesionRepository {
             estado: $data['estado'],
             observaciones: $data['observaciones'],
             encargado_apertura_id: $data['encargado_apertura_id'],
-            encargado_cierre_id: $data['encargado_cierre_id']
+            encargado_cierre_id: $data['encargado_cierre_id'],
+            cantidad_asistencia_presente: (int)($data['count_presente'] ?? 0),
+            cantidad_asistencia_finalizado: (int)($data['count_finalizado'] ?? 0),
+            cantidad_asistencia_cancelado: (int)($data['count_cancelado'] ?? 0),
+            cantidad_qr_generados: (int)($data['count_qrs'] ?? 0)
         );
-
     }
     
 }

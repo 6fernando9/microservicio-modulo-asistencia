@@ -10,7 +10,13 @@ class QrRepository{
         private PDO $db
     ){}
     public function buscarPorId(int $id): ?Qr {
-        $stmt = $this->db->prepare('SELECT * FROM "Qr" WHERE id = :id');
+        $query = 'SELECT q.*,
+        (SELECT COUNT(*) 
+        FROM "Asistencia" a 
+        WHERE a.qr_entrada_id = q.id OR a.qr_salida_id = q.id) as cantidad_asistencias
+                FROM "Qr" q
+                WHERE q.id = :id';
+        $stmt = $this->db->prepare($query);
         $stmt->execute(['id' => $id]);
         $data = $stmt->fetch(PDO::FETCH_ASSOC);
         return $data ? $this->mapearQr($data) : null;
@@ -65,14 +71,25 @@ class QrRepository{
     }
 
     public function obtenerQrsDeSesion(int $id): array {
-        $query = 'SELECT * FROM "Qr" WHERE sesion_id = :id';
+        $query = 'SELECT q.*, 
+            (SELECT COUNT(*) 
+            FROM "Asistencia" a 
+            WHERE a.qr_entrada_id = q.id OR a.qr_salida_id = q.id) as cantidad_asistencias
+                    FROM "Qr" q
+                    WHERE q.sesion_id = :id';
         $stmt = $this->db->prepare($query);
         $stmt->execute(['id' => $id]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         return array_map(fn($row) => $this->mapearQr($row), $rows);
     }
     public function obtenerQRDadoToken(string $token): ?Qr {
-        $query = 'SELECT * FROM "Qr" WHERE token = :token ORDER BY id DESC LIMIT 1';
+        $query = 'SELECT q.*, 
+            (SELECT COUNT(*) 
+            FROM "Asistencia" a 
+            WHERE a.qr_entrada_id = q.id OR a.qr_salida_id = q.id) as cantidad_asistencias
+                    FROM "Qr" q
+                    WHERE q.token = :token ORDER BY q.id DESC LIMIT 1';
+
         $stmt = $this->db->prepare($query);
         $stmt->execute([
             'token' => $token
@@ -97,13 +114,42 @@ class QrRepository{
         $stmt->execute(['sesion_id' => $sesionId]);
         return (int) $stmt->fetchColumn() > 0;
     }
+    public function obtenerQrsActivosDeSesion(int $sesionId, array $objetivos): array {
+        
+        $placeholders = implode(',', array_fill(0, count($objetivos), '?'));
+        
+        $query = 'SELECT q.*, 
+            (SELECT COUNT(*) 
+            FROM "Asistencia" a 
+            WHERE a.qr_entrada_id = q.id OR a.qr_salida_id = q.id) as cantidad_asistencias
+                    FROM "Qr" q
+                    WHERE q.sesion_id = ? 
+                    AND q.estado = ? 
+                    AND q.objetivo IN (' . $placeholders . ')
+                    ORDER BY q.id DESC';
+
+        $stmt = $this->db->prepare($query);
+        
+        
+        $params = array_merge(
+            [$sesionId, EstadoGeneralEnum::ACTIVO->value], 
+            $objetivos
+        );
+        
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        
+        return array_map(fn($row) => $this->mapearQr($row), $rows);
+    }
     private function mapearQr(array $data): Qr {
         return new Qr(
             id: $data['id'],
             token: $data['token'],
             estado: $data['estado'],
             objetivo: $data['objetivo'],
-            sesion_id: $data['sesion_id']
+            sesion_id: $data['sesion_id'],
+            cantidad_asistencias: $data['cantidad_asistencias'] ?? 0
         );
     }
 }

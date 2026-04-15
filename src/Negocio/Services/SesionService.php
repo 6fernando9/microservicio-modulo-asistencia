@@ -10,6 +10,7 @@ use App\Negocio\Dtos\Sesion\SesionUpdateDTO;
 use App\Negocio\Exceptions\BadRequestException;
 use App\Negocio\Exceptions\InternalServerException;
 use App\Negocio\Exceptions\NotFoundException;
+use App\Shared\Enums\RolEnum;
 use App\Shared\Enums\SesionEstadoEnum;
 use App\Shared\Utils\RequestUtils;
 use Throwable;
@@ -18,42 +19,101 @@ class SesionService{
     public function __construct(
         private SesionRepository $sesionRepository,
         private QrRepository $qrRepository,
-        private AsistenciaRepository $asistenciaRepository
+        private AsistenciaRepository $asistenciaRepository,
+        private QrService $qrService
     ){}
     public function listarSesiones(): array {
         
         $sesiones = $this->sesionRepository->listarSesiones();
+        $sesionActiva = $this->obtenerSesionActiva();
         if (empty($sesiones)) {
-            return [];
+            return [
+                'sesiones' => [],
+                'sesion_activa' => null,
+                'qr_encargado' => null,
+                'qr_estudiante' => null
+            ];
         }
 
         $idsEncargados = [];
+        $idsSesiones = [];
         foreach ($sesiones as $s) {
             if ($s->encargado_apertura_id) $idsEncargados[] = $s->encargado_apertura_id;
             if ($s->encargado_cierre_id) $idsEncargados[] = $s->encargado_cierre_id;
         }
-        $idsUnicos = array_values(array_unique($idsEncargados));
 
-        $url = Secrets::microservicioUsuariosURL() . "/api/encargado/obtener-encargados";
-        
-        $dataUsuarios = RequestUtils::fetch($url, 'POST', ['ids' => $idsUnicos]);
+        if ($sesionActiva && $sesionActiva->encargado_apertura_id) {
+            $idsSesiones[] = $sesionActiva->id;
+            $idsEncargados[] = $sesionActiva->encargado_apertura_id;
+        }
+        $idsUnicos = array_values(array_unique($idsEncargados));
+        $idsSesionesUnicos = array_values(array_unique($idsSesiones));
 
         $mapaUsuarios = [];
-        foreach ($dataUsuarios as $usuario) {
-            $mapaUsuarios[$usuario['id']] = $usuario;
-        }
-
-        foreach ($sesiones as $s) {
-            if (isset($mapaUsuarios[$s->encargado_apertura_id])) {
-                $s->encargado_apertura = $mapaUsuarios[$s->encargado_apertura_id];
-            }
-
-            if ($s->encargado_cierre_id && isset($mapaUsuarios[$s->encargado_cierre_id])) {
-                $s->encargado_cierre = $mapaUsuarios[$s->encargado_cierre_id];
+        if (!empty($idsUnicos)) {
+            $url = Secrets::microservicioUsuariosURL() . "/api/encargado/obtener-encargados";
+            $dataUsuarios = RequestUtils::fetch($url, 'GET', ['ids' => $idsUnicos]);
+            
+            foreach ($dataUsuarios as $usuario) {
+                $mapaUsuarios[$usuario['id']] = $usuario;
             }
         }
+        $mapaSolicitudes = [];
+        if (!empty($idsSesionesUnicos)) {
+            $urlSols = Secrets::microservicioSolicitudesURL() . "/api/solicitud/sesion/cantidades";
+            
+            $dataSols = RequestUtils::fetch($urlSols, 'GET', ['ids' => $idsSesionesUnicos]);
+            foreach ($dataSols as $c) {
+                $mapaSolicitudes[$c['sesion_id']] = $c;
+            }
+        }
 
-        return $sesiones;
+        // foreach ($sesiones as $s) {
+        //     if (isset($mapaUsuarios[$s->encargado_apertura_id])) {
+        //         $s->encargado_apertura = $mapaUsuarios[$s->encargado_apertura_id];
+        //     }
+
+        //     if ($s->encargado_cierre_id && isset($mapaUsuarios[$s->encargado_cierre_id])) {
+        //         $s->encargado_cierre = $mapaUsuarios[$s->encargado_cierre_id];
+        //     }
+        // }
+        // foreach ($sesiones as $s) {
+        //     $s->encargado_apertura = $mapaUsuarios[$s->encargado_apertura_id] ?? null;
+        //     $s->encargado_cierre = $mapaUsuarios[$s->encargado_cierre_id] ?? null;
+        // }
+        // if ($sesionActiva) {
+        //     $sesionActiva->encargado_apertura = $mapaUsuarios[$sesionActiva->encargado_apertura_id] ?? null;
+        // }
+
+        $inyectarDatos = function(Sesion $s) use ($mapaUsuarios, $mapaSolicitudes) {
+            // Usuarios
+            $s->encargado_apertura = $mapaUsuarios[$s->encargado_apertura_id] ?? null;
+            $s->encargado_cierre = $mapaUsuarios[$s->encargado_cierre_id] ?? null;
+            
+            // Solicitudes
+            if (isset($mapaSolicitudes[$s->id])) {
+                $s->cantidad_pendiente_devolucion = $mapaSolicitudes[$s->id]['cantidad_pendiente_devolucion'] ?? 0;
+                $s->cantidad_finalizado = $mapaSolicitudes[$s->id]['cantidad_finalizado'] ?? 0;
+                $s->cantidad_anulada = $mapaSolicitudes[$s->id]['cantidad_anulada'] ?? 0;
+            }
+        };
+
+        foreach ($sesiones as $s) $inyectarDatos($s);
+        if ($sesionActiva) $inyectarDatos($sesionActiva);
+
+        
+        $qrsActivos = ['qr_encargado' => null, 'qr_estudiante' => null]; 
+
+        if ($sesionActiva) {
+            $qrsActivos = $this->obtenerQrsDeSesionActivos($sesionActiva->id);
+        }
+
+        return [
+            'sesiones' => $sesiones,
+            'sesion_activa' => $sesionActiva,
+            'qr_encargado' => $qrsActivos['qr_encargado'],
+            'qr_estudiante' => $qrsActivos['qr_estudiante']
+        ];
     }
     
     public function buscarSesionPorId(int $id): Sesion {
@@ -68,7 +128,7 @@ class SesionService{
         if (!empty($ids)) {
             
             $url = Secrets::microservicioUsuariosURL() . "/api/encargado/obtener-encargados";
-            $usuarios = RequestUtils::fetch($url, 'POST', ['ids' => array_values(array_unique($ids))]);
+            $usuarios = RequestUtils::fetch($url, 'GET', ['ids' => array_values(array_unique($ids))]);
             $mapa = [];
             foreach ($usuarios as $u) {
                 $mapa[$u['id']] = $u;
@@ -105,6 +165,14 @@ class SesionService{
         if (!$sesionCreadaId) {
             throw new BadRequestException("Error al aperturar la sesión.");
         }
+        $qrEstudiante = $this->qrService->crearQR(RolEnum::ESTUDIANTE->value);
+        if (!$qrEstudiante) {
+            throw new BadRequestException("Error al crear el QR para estudiantes al aperturar la sesión.");
+        }
+        $qrEncargado = $this->qrService->crearQR(RolEnum::ENCARGADO->value);
+        if (!$qrEncargado) {
+            throw new BadRequestException("Error al crear el QR para encargados al aperturar la sesión.");
+        }   
         $nuevaSesion->id = $sesionCreadaId;
         $nuevaSesion->estado = SesionEstadoEnum::ABIERTA->value;
         $nuevaSesion->encargado_apertura_id = $encargadoId;
@@ -174,6 +242,12 @@ class SesionService{
         if ($existeAsistencias ) {
             throw new BadRequestException("No se puede eliminar la sesión con ID $id porque tiene asistencias asociados.");
         }
+        
+        $data = RequestUtils::fetch(Secrets::microservicioSolicitudesURL() . "/api/solicitud/sesion/$id/existe", 'GET');
+        
+        #se asume que si existe una solicitud asociada a la sesion, entonces no se puede eliminar la sesion, aunque no tenga asistencias o qr asociados
+        # en teoria lanza un 404
+
         #digamos que permite eliminar sesion aunque tenga qr asociado
         $eliminacion = $this->sesionRepository->eliminarSesion($id);
         if (!$eliminacion) {
@@ -250,7 +324,7 @@ class SesionService{
         if (!empty($idsUnicos)) {
             
             $url = Secrets::microservicioUsuariosURL() . "/api/usuario/obtener-usuarios";
-            $response = RequestUtils::fetch($url, 'POST', ['ids' => $idsUnicos]);
+            $response = RequestUtils::fetch($url, 'GET', ['ids' => $idsUnicos]);
             $dataUsuarios = $response['data'] ?? $response;
             $mapaUsuarios = [];
             foreach ($dataUsuarios as $usuario) {
@@ -274,6 +348,14 @@ class SesionService{
 
         return $asistencias;
     }
+    public function obtenerSolicitudesDeSesion(int $sesionId): array {
+        $sesionExistente = $this->sesionRepository->buscarPorId($sesionId);
+        if (!$sesionExistente) {
+            throw new NotFoundException("La sesión con ID $sesionId no existe.");
+        }
+        $data = RequestUtils::fetch(Secrets::microservicioSolicitudesURL() . "/api/solicitud/sesion/$sesionId/index");
+        return $data;
+    }
     public function obtenerQrsDeSesion(int $sesionId): array {
         $sesionExistente = $this->sesionRepository->buscarPorId($sesionId);
         if (!$sesionExistente) {
@@ -282,4 +364,65 @@ class SesionService{
         $qrs = $this->qrRepository->obtenerQrsDeSesion($sesionId);
         return $qrs;
     }
+    // public function obtenerSesionActiva(): ?Sesion{
+    //     $sesionActiva = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
+      
+    //     return $sesionActiva;
+    // }
+    public function obtenerSesionActivaSimple(): ?Sesion {
+        return $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
+    }
+    public function obtenerSesionActiva(): ?Sesion {
+        
+        $sesionActiva = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
+        
+        if (!$sesionActiva) {
+            return null;
+        }
+
+        if ($sesionActiva->encargado_apertura_id) {
+            
+            $urlUser = Secrets::microservicioUsuariosURL() . "/api/encargado/obtener-encargados";
+            $usuarios = RequestUtils::fetch($urlUser, 'GET', ['ids' => [$sesionActiva->encargado_apertura_id]]);
+            if (!empty($usuarios)) {
+                $sesionActiva->encargado_apertura = $usuarios[0];
+            }
+            
+        }
+
+        $urlSols = Secrets::microservicioSolicitudesURL() . "/api/solicitud/sesion/cantidades";
+        $dataSols = RequestUtils::fetch($urlSols, 'GET', ['ids' => [$sesionActiva->id]]);
+        if (!empty($dataSols)) {
+            $conteo = $dataSols[0];
+            $sesionActiva->cantidad_pendiente_devolucion = $conteo['cantidad_pendiente_devolucion'] ?? 0;
+            $sesionActiva->cantidad_finalizado = $conteo['cantidad_finalizado'] ?? 0;
+            $sesionActiva->cantidad_anulada = $conteo['cantidad_anulada'] ?? 0;
+        }
+        
+        return $sesionActiva;
+    }
+    public function obtenerQrsDeSesionActivos(int $sesionId) {
+        
+        $objetivos = [RolEnum::ENCARGADO->value, RolEnum::ESTUDIANTE->value];
+        
+        $qrs = $this->qrRepository->obtenerQrsActivosDeSesion($sesionId, $objetivos);
+        
+        $data = [
+            'qr_encargado' => null,
+            'qr_estudiante' => null
+        ];
+
+        foreach ($qrs as $qr) {
+            if (strtolower($qr->objetivo) === RolEnum::ENCARGADO->value) {
+                $data['qr_encargado'] = $qr;
+            } elseif (strtolower($qr->objetivo) === RolEnum::ESTUDIANTE->value) {
+                $data['qr_estudiante'] = $qr;
+            }
+        }
+
+        return $data;
+    }
+
+  
+   
 }

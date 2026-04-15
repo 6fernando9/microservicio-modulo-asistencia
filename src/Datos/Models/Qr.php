@@ -8,6 +8,7 @@ class Qr {
         public string $objetivo,
         public ?int $sesion_id,
         public ?Sesion $sesion = null,
+        public int $cantidad_asistencias = 0
     ){}
     
 }

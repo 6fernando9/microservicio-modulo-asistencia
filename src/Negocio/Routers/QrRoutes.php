@@ -15,9 +15,9 @@ class QrRoutes{
         $service = new QrService($qrRepo, $sesionRepo, $asistenciaRepo);
         $controller = new QrController($service);
         
-        $router->post('/api/qr/crear', [$controller, 'crearQR']);
+        $router->post('/api/qr/store', [$controller, 'crearQR']);
         $router->get('/api/qr/{id}/show', [$controller, 'obtenerQR']);
         $router->put('/api/qr/{id}/inhabilitar', [$controller, 'inhabilitarQR']);
-        $router->delete('/api/qr/{id}/eliminar', [$controller, 'eliminarQR']);
+        $router->delete('/api/qr/{id}/delete', [$controller, 'eliminarQR']);
     }
 }

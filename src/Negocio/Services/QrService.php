@@ -17,22 +17,32 @@ class QrService {
         private AsistenciaRepository $asistenciaRepository
     ) {}
 
-    public function crearQR(string $objetivo): Qr {
-    
-        $sesionAbierta = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
-        if (!$sesionAbierta) {
-            throw new BadRequestException("No se puede crear un QR si no hay una sesión abierta.");
+    public function crearQR(string $objetivo, ?int $sesionId = null): Qr {
+        $sesionIdAUsar = null;
+        if ($sesionId) {
+            $sesion = $this->sesionRepository->buscarPorId($sesionId);
+            if (!$sesion || $sesion->estado !== SesionEstadoEnum::ABIERTA->value) {
+                throw new BadRequestException("No se puede crear un QR para la sesión con ID $sesionId porque no existe o no está abierta.");
+            }
+            $sesionIdAUsar = $sesionId;
+        }else{
+            $sesionAbierta = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);
+            if (!$sesionAbierta) {
+                throw new BadRequestException("No se puede crear un QR si no hay una sesión abierta.");
+            }
+            $sesionIdAUsar = $sesionAbierta->id;
         }
         $token = bin2hex(random_bytes(16));
+        
         $qr = new Qr(
             id: null,
             token: $token,
             objetivo: $objetivo,
             estado: EstadoGeneralEnum::ACTIVO->value,
-            sesion_id: $sesionAbierta->id
+            sesion_id: $sesionIdAUsar
         );
 
-        $id = $this->qrRepository->crearQR($qr, $sesionAbierta->id);
+        $id = $this->qrRepository->crearQR($qr, $sesionIdAUsar);
         
         if (!$id) {
             throw new BadRequestException("Error interno al intentar guardar el QR.");
