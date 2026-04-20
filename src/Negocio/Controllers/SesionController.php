@@ -133,5 +133,13 @@ class SesionController {
             return RequestUtils::handleError($e);
         }
     }
+    public function buscarSesionPorIdSimple(int $id) {
+        try {
+            $sesion = $this->sesionService->buscarSesionPorIdSimple($id);
+            return RequestUtils::sendResponse($sesion);
+        } catch (Throwable $e) {
+            return RequestUtils::handleError($e);
+        }
+    }
 
 }

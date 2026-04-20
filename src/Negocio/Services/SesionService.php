@@ -139,6 +139,15 @@ class SesionService{
 
         return $sesion;
     }
+     public function buscarSesionPorIdSimple(int $id): Sesion {
+        
+        $sesion = $this->sesionRepository->buscarPorId($id);
+        if (!$sesion) {
+            throw new NotFoundException("La sesión con ID $id no existe.");
+        }
+
+        return $sesion;
+    }
 
     public function aperturarSesion(?string $observaciones): Sesion {
         $existeAperturaAbierta = $this->sesionRepository->obtenerUltimaSesionDadoEstado(SesionEstadoEnum::ABIERTA->value);

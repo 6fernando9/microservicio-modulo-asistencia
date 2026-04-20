@@ -186,7 +186,7 @@ class AsistenciaRepository{
         
         return $row ? $this->mapearAsistencia($row) : null;
     }
-    public function obtenerEstadisticasAsistenciaParaEstudiante(int $estudianteId, int $sesionId): array {
+    public function obtenerEstadisticasAsistenciaParaEstudiante(int $sesionId,int $estudianteId): array {
         $sql = 'SELECT 
                     COUNT(*) as total_historico,
                     COUNT(*) FILTER (WHERE sesion_id = :sesion_id) as total_sesion
@@ -207,7 +207,7 @@ class AsistenciaRepository{
         ];
 
     }
-    public function obtenerEstadisticasAsistenciaParaEncargado(int $estudianteId, int $sesionId): array {
+    public function obtenerEstadisticasAsistenciaParaEncargado(int $sesionId,int $encargadoId ): array {
         $sql = 'SELECT 
                     COUNT(*) as total_historico,
                     COUNT(*) FILTER (WHERE sesion_id = :sesion_id) as total_sesion
@@ -216,7 +216,7 @@ class AsistenciaRepository{
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            'encargado_id' => $estudianteId,
+            'encargado_id' => $encargadoId,
             'sesion_id' => $sesionId
         ]);
 
@@ -270,13 +270,13 @@ class AsistenciaRepository{
     
 
 
-    public function obtenerAsistenciasDeSesion(int $id): array {
+    public function obtenerAsistenciasDeSesion(int $sesionId): array {
         
         $query = 'SELECT a.*
               FROM "Asistencia" a 
-              WHERE a.sesion_id = :id';
+              WHERE a.sesion_id = :sesionId';
         $stmt = $this->db->prepare($query);
-        $stmt->execute(['id' => $id]);
+        $stmt->execute(['sesionId' => $sesionId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         return array_map(fn($row) => $this->mapearAsistencia($row), $rows);
         

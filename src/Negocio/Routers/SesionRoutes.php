@@ -32,5 +32,6 @@ class SesionRoutes {
         $router->get('/api/sesion/{id}/solicitudes', [$controller, 'obtenerSolicitudesDeSesion']);
         $router->get('/api/sesion/activa', [$controller, 'obtenerSesionActiva']);
         $router->get('/api/sesion/activa/simple', [$controller, 'obtenerSesionActivaSimple']);
+        $router->get('/api/sesion/{id}/simple', [$controller, 'buscarSesionPorIdSimple']);
     }
 }
